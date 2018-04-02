@@ -208,6 +208,6 @@ rightZ = case _ of
 
 shiftZ :: forall a. CycleZipper a -> Int -> CycleZipper a
 shiftZ cz n = case compare n 0 of
-  LT -> shiftZ (leftZ cz) (mod n (size cz) + 1) 
+  LT -> shiftZ (leftZ cz) (mod n (size cz) + 1)
   EQ -> cz
   GT -> shiftZ (rightZ cz) (mod n (size cz) - 1)
