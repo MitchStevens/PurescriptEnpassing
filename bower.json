@@ -18,7 +18,8 @@
     "purescript-enums": "^3.2.1",
     "purescript-affjax": "^5.0.0",
     "purescript-quickcheck": "^4.7.0",
-    "purescript-eff": "^3.2.0"
+    "purescript-eff": "^3.2.0",
+    "purescript-formatting": "^1.0.5"
   },
   "devDependencies": {
     "purescript-psci-support": "^3.0.0"

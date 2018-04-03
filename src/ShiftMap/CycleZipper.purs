@@ -10,6 +10,7 @@ import Data.NonEmpty as N
 import Data.List.Types
 import Data.Bifunctor
 import Partial
+import Data.Maybe
 import Partial.Unsafe
 import Test.QuickCheck.Arbitrary
 
@@ -30,15 +31,16 @@ data CycleZipper a
     , rs :: NonEmptyList a
     , lenr :: Int }
 
-derive instance eq_cz :: Eq a => Eq (CycleZipper a) 
+instance eq_cz :: Eq a => Eq (CycleZipper a) where
+  eq cz1 cz2 = (to_list cz1) == (to_list cz2)
+
 instance show_cz :: Show a => Show (CycleZipper a) where
-  show = case _ of
-    CZ1 v  -> fold ["[(", show v, ")]"]
-    CZ2 cz -> fold ["[(", show cz.value, "), ", show cz.other, "]"]
-    CZN cz -> fold
-      ["[", intercalate ", " (map show cz.fs)
-      , ", (", show cz.value, "), "
-      , intercalate ", " (map show cz.rs), "]"]
+  show (CZ1 v)  = fold ["[(", show v, ")]"]
+  show (CZ2 cz) = fold ["[(", show cz.value, "), ", show cz.other, "]"]
+  show (CZN cz) = "[" <> fs <> ", (" <> show cz.value <> "), " <> rs <> "]"
+    where
+      fs = intercalate ", " $ reverse $ map show $ toList cz.fs
+      rs = intercalate ", " $ map show cz.rs
 instance functor_cz :: Functor CycleZipper where
   map f (CZ1 v)  = CZ1 (f v)
   map f (CZ2 cz) = CZ2 { value: f cz.value, other: f cz.other }
@@ -85,7 +87,7 @@ from_list (NonEmptyList (N.NonEmpty v vs)) = case vs of
 
 to_list :: CycleZipper ~> List
 to_list (CZ1 v)  = singleton v
-to_list (CZ2 cz)  = Cons cz.value $ Cons cz.other Nil
+to_list (CZ2 cz)  = Cons cz.value (Cons cz.other Nil)
 to_list (CZN cz) = Cons cz.value (toList cz.rs <> reverse (toList cz.fs))
 
 size :: forall a. CycleZipper a -> Int
@@ -96,6 +98,9 @@ size (CZN cz) = cz.lenf + 1 + cz.lenr
 {-  Assuming: length fs + length rs >= 2 -}
 cycle_zipper :: CycleZipperType ~> CycleZipper
 cycle_zipper cz
+  | length cz.fs + length cz.rs <= 1 = case (cz.fs <> cz.rs) of
+    Cons o Nil -> CZ2 { value: cz.value, other: o}
+    _          -> CZ1 cz.value
   | null cz.fs = unsafePartial $ cycle_right cz
   | null cz.rs = unsafePartial $ cycle_left  cz
   | otherwise  = unsafePartial $ CZN
@@ -114,7 +119,7 @@ cycle_right cz = CZN
   , value: cz.value
   , rs: to_non_empty rs
   , lenr: div cz.lenr 2 }
-  where Tuple rs fs = middle cz.rs (div cz.lenr 2)
+  where Tuple fs rs = middle cz.rs (div cz.lenr 2)
 
 {-  Assuming that rs is empty
     Assuming that fs >= 2 -}
@@ -143,71 +148,93 @@ to_non_empty = case _ of
   Cons x xs -> NonEmptyList (N.NonEmpty x xs)
   Nil       -> crashWith "List is not NonEmpty"
 
-insert_left :: forall a. CycleZipper a -> a -> CycleZipper a
-insert_left (CZ1 v)  x = CZ2 { value: v, other: x }
-insert_left (CZ2 cz) x = CZN
+insert_left :: forall a. a -> CycleZipper a -> CycleZipper a
+insert_left x (CZ1 v)  = CZ2 { value: v, other: x }
+insert_left x (CZ2 cz) = CZN
   { fs: NonEmptyList $ N.singleton x
   , lenf: 1
   , value: cz.value
   , rs: NonEmptyList $ N.singleton cz.other
   , lenr: 1 }
-insert_left (CZN cz) x = CZN
+insert_left x (CZN cz) = CZN
   { fs: nelCons x cz.fs
   , lenf: cz.lenf + 1
   , value: cz.value
   , rs: cz.rs
   , lenr: cz.lenr }
 
-insert_right :: forall a. CycleZipper a -> a -> CycleZipper a
-insert_right (CZ1 v)  x = CZ2 { value: v, other: x }
-insert_right (CZ2 cz) x = CZN
+insert_right :: forall a. a -> CycleZipper a -> CycleZipper a
+insert_right x (CZ1 v)  = CZ2 { value: v, other: x }
+insert_right x (CZ2 cz) = CZN
   { fs: NonEmptyList $ N.singleton cz.other
   , lenf: 1
   , value: cz.value
   , rs: NonEmptyList $ N.singleton x
   , lenr: 1 }
-insert_right (CZN cz) x = CZN
+insert_right x (CZN cz) = CZN
   { fs: cz.fs
   , lenf: cz.lenf
   , value: cz.value
   , rs: nelCons x cz.rs
   , lenr: cz.lenr + 1 }
 
-leftZ :: CycleZipper ~> CycleZipper
-leftZ = case _ of
-  CZ1 v  -> CZ1 v
-  CZ2 cz -> CZ2 { value: cz.other, other: cz.value }
-  CZN cz -> czn cz
-    where
-    czn cz = let NonEmptyList (N.NonEmpty f fs) = cz.fs
-                 NonEmptyList (N.NonEmpty r rs) = cz.rs 
-      in cycle_zipper
-        { fs: fs
-        , lenf: cz.lenf - 1
-        , value: f
-        , rs: cz.value : r : rs
-        , lenr: cz.lenr + 1 }
-  
+remove_left :: forall a. CycleZipper a -> Maybe (CycleZipper a)
+remove_left (CZ1 _)  = Nothing
+remove_left (CZ2 cz) = Just $ CZ1 cz.value
+remove_left (CZN cz) =
+  let NonEmptyList (N.NonEmpty f fs) = cz.fs
+      NonEmptyList (N.NonEmpty r rs) = cz.rs 
+  in Just $ cycle_zipper
+    { fs: fs
+    , lenf: cz.lenf - 1
+    , value: cz.value
+    , rs: r : rs
+    , lenr: cz.lenr }
 
-rightZ :: CycleZipper ~> CycleZipper
-rightZ = case _ of
-  CZ1 v  -> CZ1 v
-  CZ2 cz -> CZ2 { value: cz.other, other: cz.value }
-  CZN cz -> czn cz
-    where 
-      czn cz =
-        let 
-          NonEmptyList (N.NonEmpty f fs) = cz.fs
-          NonEmptyList (N.NonEmpty r rs) = cz.rs
-        in cycle_zipper
-          { fs: cz.value : f : fs
-          , lenf: cz.lenf + 1
-          , value: r
-          , rs: rs
-          , lenr: cz.lenr - 1 }
+remove_right :: forall a. CycleZipper a -> Maybe (CycleZipper a)
+remove_right (CZ1 _)  = Nothing
+remove_right (CZ2 cz) = Just $ CZ1 cz.value
+remove_right (CZN cz) =
+  let NonEmptyList (N.NonEmpty f fs) = cz.fs
+      NonEmptyList (N.NonEmpty r rs) = cz.rs
+  in Just $ cycle_zipper
+    { fs: f : fs
+    , lenf: cz.lenf
+    , value: cz.value
+    , rs: rs
+    , lenr: cz.lenr - 1 }
 
-shiftZ :: forall a. CycleZipper a -> Int -> CycleZipper a
-shiftZ cz n = case compare n 0 of
-  LT -> shiftZ (leftZ cz) (mod n (size cz) + 1)
-  EQ -> cz
-  GT -> shiftZ (rightZ cz) (mod n (size cz) - 1)
+shift_left :: CycleZipper ~> CycleZipper
+shift_left (CZ1 v)  = CZ1 v
+shift_left (CZ2 cz) = CZ2 { value: cz.other, other: cz.value }
+shift_left (CZN cz) = 
+  let NonEmptyList (N.NonEmpty f fs) = cz.fs
+      NonEmptyList (N.NonEmpty r rs) = cz.rs 
+  in cycle_zipper
+    { fs: fs
+    , lenf: cz.lenf - 1
+    , value: f
+    , rs: cz.value : r : rs
+    , lenr: cz.lenr + 1 }
+
+shift_right :: CycleZipper ~> CycleZipper
+shift_right (CZ1 v)  = CZ1 v
+shift_right (CZ2 cz) = CZ2 { value: cz.other, other: cz.value }
+shift_right (CZN cz) =
+  let NonEmptyList (N.NonEmpty f fs) = cz.fs
+      NonEmptyList (N.NonEmpty r rs) = cz.rs
+  in cycle_zipper
+    { fs: cz.value : f : fs
+    , lenf: cz.lenf + 1
+    , value: r
+    , rs: rs
+    , lenr: cz.lenr - 1 }
+
+shiftN :: forall a. Int -> CycleZipper a -> CycleZipper a
+shiftN n_ cz_ = shiftN_mod (mod n_ (size cz_)) cz_
+  where
+    shiftN_mod :: Int -> CycleZipper a -> CycleZipper a
+    shiftN_mod n cz = case compare n 0 of
+      LT -> shiftN_mod (n+1) (shift_left cz)
+      EQ -> cz
+      GT -> shiftN_mod (n-1) (shift_right cz)
