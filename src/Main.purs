@@ -27,12 +27,10 @@ type EffM e a = Eff
   , fs :: FS
   , ref :: REF | e) a
 
-dims = dimensions 100.0 60.0
-
 main :: forall e. EffM e Unit
 main = runHalogenAff do
   element <- await_guitar
-  io <- runUI chord_input dims element
+  io <- runUI chord_input unit element
   pure unit
 
 await_guitar :: forall e. Aff (dom :: DOM | e) HTMLElement

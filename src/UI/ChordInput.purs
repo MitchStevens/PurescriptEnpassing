@@ -18,9 +18,7 @@ import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 
 type State =
-  { dimensions :: Dimensions
-  , curr_chord :: Either ParseError Chord
-  }
+  { curr_chord :: Either ParseError Chord }
 
 data Query a = TextInput String a | Help a
 
@@ -28,18 +26,17 @@ data Message
   = ChordChange (Either ParseError Chord)
   | HelpClicked
 
-chord_input :: forall m. H.Component HH.HTML Query Dimensions Message m
+chord_input :: forall m. H.Component HH.HTML Query Unit Message m
 chord_input =
-  H.component { initialState: initial_state
+  H.component { initialState: initial
     , render
     , eval
     , receiver: const Nothing }
   where
 
-  initial_state :: Dimensions -> State
-  initial_state dims = 
-    { dimensions: dims
-    , curr_chord: Left (ParseError "" initialPos) }
+  initial :: Unit -> State
+  initial _ = 
+    { curr_chord: Left (ParseError "" initialPos) }
 
 
   render :: State -> H.ComponentHTML Query
